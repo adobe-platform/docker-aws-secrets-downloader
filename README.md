@@ -54,7 +54,7 @@ The script utilizes JQ to parse the JSON returned from DynamoDB. The following f
 #### contents
 
 * The base64 encoded string representing the encrypted secret. To obtain this, the plaintext secret must first be encoded with KMS.
-* _Allowed Values_: ""
+* _Allowed Values_: _any valid base64 string_
 * _Required_: Yes
 * _Type_: String
 
