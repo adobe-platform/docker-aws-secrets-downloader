@@ -1,18 +1,20 @@
-FROM       ubuntu:14.04
+FROM       alpine:3.3
 MAINTAINER AdobePlatform <qa-behance@adobe.com>
 
 ENV     SHELL /bin/bash
 WORKDIR "/data"
 
-RUN apt-get install jq -y
-RUN apt-get install curl python2.7 -y
+RUN apk update && \
+    apk add \
+      bash \
+      'python<3.0' \
+      'py-pip<8.2.0' \
+    && \
+    rm -rf /var/cache/apk/*
 
-ADD https://bootstrap.pypa.io/get-pip.py /get-pip.py
-RUN sudo python2.7 /get-pip.py
+RUN pip install awscli
 
-RUN sudo pip install awscli
-
-ADD download-decrypt-secrets /opt/ethos/download-decrypt-secrets
+ADD download-decrypt-secrets.sh /opt/ethos/download-decrypt-secrets
 
 ENTRYPOINT ["/bin/bash", "/opt/ethos/download-decrypt-secrets"]
 CMD []
