@@ -2,13 +2,35 @@
 
 ## Script Usage
 ```
-./download-decrypt-secrets.sh <DynamoTableName> <SecretKey or RepoName> <SecretName>
+./download-decrypt-secrets.sh [options]
+    -r|--region     Pass a region to use. If none is provided, the region will be looked up via AWS metadata
+    -k|--key        The secret key to use. Either "cluster" or the name of the application.
+    -t|--table      The DynamoDB table to query.
+    -n|--name       The name of the secret.
 ```
 
-Where:
-* `DynamoTableName` is either the table used for storage of build secrets or the cluster's secrets table
-* `SecretKey` or `RepoName` is either `cluster` (for the cluster secrets) or the repo name previously used to store the secrets via Orca
-* `SecretName` is the secret to query for. Ex: `DATADOG_ACCESS_KEY` or `SUMO_API_KEY`
+The script can be run from within a Docker container or stand-alone on either AWS infrastructure or traditional servers.
+
+### Docker Container
+```
+$ docker pull behance/docker-aws-secrets-downloader
+$ docker run docker-aws-secrets-downloader --table SOME_TABLE --name SECRET_NAME
+$ yoursecretval
+```
+
+### Usage on AWS Infrastructure
+Running on AWS means that the region can be determined automatically via the AWS metadata service.
+
+```
+$ ./download-decrypt-secrets.sh -t SOME_TABLE -n SECRET_NAME
+```
+
+### Usage on Traditional Servers
+Running on traditional servers means that the region must be provided. Failure to provide the region will result in the script hanging as it attempts to contact the (unavailable) AWS metadata service.
+
+```
+$ ./download-decrypt-secrets.sh -t SOME_TABLE -n SECRET_NAME -r us-east-1
+```
 
 ## DynamoDB JSON Format
 The script utilizes JQ to parse the JSON returned from DynamoDB. The following format must be used for all secrets:
@@ -16,11 +38,11 @@ The script utilizes JQ to parse the JSON returned from DynamoDB. The following f
 ```
 "[repo_name|cluster]": {
 	"secret_name": {
-		"type": "[file|env|invoke|rsa]",
-		"path": "[DATADOG_KEY|/root/.dockercfg]",
-		"permissions": "644",
-		"contents": "base64 encoded secret contents"
-	}
+        "type": "[file|env|invoke|rsa]",
+        "path": "[DATADOG_KEY|/root/.dockercfg]",
+        "permissions": "644",
+        "contents": "base64 encoded secret contents"
+    }
 }
 ```
 
