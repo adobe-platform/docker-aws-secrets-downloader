@@ -1,12 +1,17 @@
 # docker-aws-secrets-downloader
 
+This script and container aid in the download and decryption of secrets and configs stored in DynamoDB. For secrets, the stored value is decrypted with KMS before being returned. Config values are returned as plaintext without being decrypted (since they are stored in plaintext in DynamoDB). This script can be used to view all of the available secrets and configs and then iterate through each to decrypt and load where needed.
+
+CAUTION: This script or container does not actually place the secrets or configs into etcd, environment variables, or files. It merely returns it for use by a parent script.
+
 ## Script Usage
 ```
 ./download-decrypt-secrets.sh [options]
-    -r|--region     Pass a region to use. If none is provided, the region will be looked up via AWS metadata
-    -k|--key        The secret key to use. Either "cluster" or the name of the application.
-    -t|--table      The DynamoDB table to query.
-    -n|--name       The name of the secret.
+    -r|--region    (optional) If not provided, the region will be looked up via AWS metadata (EC2-only).
+    -t|--table     The DynamoDB table to query.
+    -k|--key       The table key to use. Ex: "secrets" or "configs"
+    -n|--name      (optional) The name of the secret or config. Ex: SUMO_LOGIC_KEY. If none is provided, a list of all secrets or configs is returned
+    -f|--format    (optional) Can be "plain". If provided, will print the raw plaintext secret without metadata."
 ```
 
 The script can be run from within a Docker container or stand-alone on either AWS infrastructure or traditional servers.
@@ -14,7 +19,7 @@ The script can be run from within a Docker container or stand-alone on either AW
 ### Docker Container
 ```
 $ docker pull behance/docker-aws-secrets-downloader
-$ docker run docker-aws-secrets-downloader --table SOME_TABLE --name SECRET_NAME
+$ docker run docker-aws-secrets-downloader --table SOME_TABLE --key secrets --name SECRET_NAME --format plain
 $ yoursecretval
 ```
 
@@ -22,14 +27,70 @@ $ yoursecretval
 Running on AWS means that the region can be determined automatically via the AWS metadata service.
 
 ```
-$ ./download-decrypt-secrets.sh -t SOME_TABLE -n SECRET_NAME
+$ ./download-decrypt-secrets.sh -t SOME_TABLE -k secrets -n SECRET_NAME
 ```
 
 ### Usage on Traditional Servers
 Running on traditional servers means that the region must be provided. Failure to provide the region will result in the script hanging as it attempts to contact the (unavailable) AWS metadata service.
 
 ```
-$ ./download-decrypt-secrets.sh -t SOME_TABLE -n SECRET_NAME -r us-east-1
+$ ./download-decrypt-secrets.sh -t SOME_TABLE -k secrets -n SECRET_NAME -r us-east-1
+```
+
+## Running Examples
+
+### List Available Secrets
+
+```
+$ ./download-decrypt-secrets.sh --table test-sandbox-ue1-cluster-secrets-table --key secrets
+DATADOG_KEY
+FD_GITHUB_ALLOWED_TEAMS
+FD_GITHUB_CLIENT_ID
+FD_GITHUB_CLIENT_SECRET
+GIT_PULL_KEY
+HUD_GITHUB_CLIENT_ID
+HUD_GITHUB_CLIENT_SECRET
+MARATHON_PASSWORD
+MARATHON_USERNAME
+SUMOLOGIC_ACCESS_ID
+SUMOLOGIC_SECRET
+SYSDIG_KEY
+```
+
+### Decrypt Secret with Metadata
+
+```
+$ ./download-decrypt-secrets.sh --table test-sandbox-ue1-cluster-secrets-table --key secrets --name DATADOG_KEY
+DATADOG_KEY etcd /ddapikey abcdef12345ghijk
+```
+
+### Decrypt Secret without Metadata (Plaintext)
+
+```
+$ ./download-decrypt-secrets.sh --table test-sandbox-ue1-cluster-secrets-table --key secrets --name DATADOG_KEY --format plain
+abcdef12345ghijk
+```
+
+### List Available Configs
+
+```
+$ ./download-decrypt-secrets.sh --table test-sandbox-ue1-cluster-secrets-table --key configs
+/test/valueone
+/test/valuetwo
+```
+
+### Display Config with Metadata
+
+```
+$ ./download-decrypt-secrets.sh --table test-sandbox-ue1-cluster-secrets-table --key configs --name /test/valueone
+/test/valueone configvalue
+```
+
+### Display Config without Metadata (Plaintext)
+
+```
+$ ./download-decrypt-secrets.sh --table test-sandbox-ue1-cluster-secrets-table --key configs --name /test/valueone --format plain
+configvalue
 ```
 
 ## DynamoDB JSON Format
@@ -56,14 +117,14 @@ The script utilizes JQ to parse the JSON returned from DynamoDB. The following f
 * The type of secret that this is.
 * _Required_: Yes
 * _Type_: String
-* _Allowed Values_: "file", "env", "invoke", "rsa"
+* _Allowed Values_: "file", "env", "invoke", "rsa", "etcd"
 
 #### path
 
 * Where the secret should be saved. If the type is "file" or "rsa", this is a path. If the type is "env" this is a environment variable name.
-* _Required_: Conditional. Required if type is "file", "rsa", or "env".
+* _Required_: Conditional. Required if type is "file", "rsa", "env", or "etcd".
 * _Type_: String
-* _Examples_: "/root/.sampleconfig", "SAMPLE_SECRET", "/root/.ssh/userkey"
+* _Examples_: "/root/.sampleconfig", "SAMPLE_SECRET", "/root/.ssh/userkey", "/FD/sampleetcdval"
 
 #### permissions
 

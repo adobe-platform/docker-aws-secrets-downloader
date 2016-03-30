@@ -1,17 +1,19 @@
 #!/bin/bash
 
 # Usage: ./download-decrypt-secrets [options]
-# -r|--region     Pass a region to use. If none is provided, the region will be looked up via AWS metadata
-# -k|--key        The secret key to use. Either "cluster" or the name of the application.
-# -t|--table      The DynamoDB table to query.
-# -n|--name       The name of the secret.
+# -r|--region    (optional) If not provided, the region will be looked up via AWS metadata (EC2-only).
+# -t|--table     The DynamoDB table to query.
+# -k|--key       The table key to use. Ex: "secrets" or "configs"
+# -n|--name      (optional) The name of the secret or config. Ex: SUMO_LOGIC_KEY. If none is provided, a list of all secrets or configs is returned
+# -f|--format    (optional) Can be "plain". If provided, will print the raw plaintext secret without metadata."
 
 function usage {
     echo "usage: $0 [options]"
     echo "       -r|--region    (optional) If not provided, the region will be looked up via AWS metadata (EC2-only)."
-    echo "       -k|--key       (optional) The secret table key to use. Either \"cluster\" or the name of the application. If none is provided, \"cluster\" is used."
     echo "       -t|--table     The DynamoDB table to query."
-    echo "       -n|--name      The name of the secret. Ex: SUMO_LOGIC_KEY"
+    echo "       -k|--key       The table key to use. Ex: \"secrets\" or \"configs\""
+    echo "       -n|--name      (optional) The name of the secret or config. Ex: SUMO_LOGIC_KEY. If none is provided, a list of all secrets or configs is returned"
+    echo "       -f|--format    (optional) Can be \"plain\". If provided, will print the raw plaintext secret without metadata."
     exit 1
 }
 
@@ -32,17 +34,15 @@ case $key in
     -t|--table)
     TABLE="$2"
     shift;;
+    -f|--format)
+    FORMAT="$2"
+    shift;;
     *)
             # unknown option
     ;;
 esac
 shift # past argument or value
 done
-
-if [ -z "$NAME" ]; then
-    echo "Secret name is required."
-    usage
-fi
 
 if [ -z "$TABLE" ]; then
     echo "DynamoDB table name is required."
@@ -55,33 +55,64 @@ if [ -z "$REGION" ]; then
 fi
 
 if [ -z "$KEY" ]; then
-    KEY="cluster"
+    echo "Key is required. Use either \"secrets\" or \"configs\"."
+    usage
 fi
 
 # Save the key to a JSON file required by aws cli
 echo "{\"SecretKey\": {\"S\": \"$KEY\"}}" > key.json
 
 SECRETJSON=`aws dynamodb get-item --table-name $TABLE --key file://key.json --output json --region $REGION`
+rm key.json
+
+# If no name is specified, print all available
+if [ -z "$NAME" ]; then
+    SECRETKEYS=`echo $SECRETJSON | jq -r '.Item.SecretVal.M | keys | sort[]'`
+    echo "$SECRETKEYS"
+    exit 0
+fi
+
+# If requesting a config, print and exit
+if [[ "$KEY" = "configs" ]]; then
+    SECRETVAL=`echo "$SECRETJSON" | jq -r '.Item.SecretVal.M["'$NAME'"].S'`
+    
+    if [[ "$FORMAT" = "plain" ]]; then
+        echo "$NAME $SECRETVAL"
+    elif [[ -z "$FORMAT" ]]; then
+        echo "$NAME $SECRETVAL"
+    fi
+
+    exit 0
+fi
+
 SECRETVAL=`echo "$SECRETJSON" | jq -r '.Item.SecretVal.M["'$NAME'"].M.contents.S'`
 SECRETTYPE=`echo "$SECRETJSON" | jq -r '.Item.SecretVal.M["'$NAME'"].M.type.S'`
+SECRETPATH=`echo "$SECRETJSON" | jq -r '.Item.SecretVal.M["'$NAME'"].M.path.S'`
+SECRETPERMISSIONS=`echo "$SECRETJSON" | jq -r '.Item.SecretVal.M["'$NAME'"].M.permissions.S'`
 
 if [ "$SECRETVAL" = "null" ] || [ "$SECRETTYPE" = "null" ]; then
     echo "No secret or invalid type found for $KEY"
     exit 1
 fi
-
 echo "$SECRETVAL" | base64 -d > blob.json
 
 DECRYPTED=`aws kms decrypt --ciphertext-blob fileb://blob.json --query Plaintext --output text --region $REGION | base64 -d`
-rm key.json
 rm blob.json
 
+if [[ "$FORMAT" = "plain" ]]; then
+    echo "$DECRYPTED"
+    exit 0
+fi
+
 if [ "$SECRETTYPE" = "invoke" ]; then
-    echo "$DECRYPTED"
+    echo "$NAME $SECRETTYPE $DECRYPTED"
+elif [[ "$SECRETTYPE" = "etcd" ]]; then
+    echo "$NAME $SECRETTYPE $SECRETPATH $DECRYPTED"
 elif [[ "$SECRETTYPE" = "file" ]]; then
-    echo "$DECRYPTED"
+    echo "$NAME $SECRETTYPE $SECRETPATH $SECRETPERMISSIONS $DECRYPTED"
 elif [[ "$SECRETTYPE" = "rsa" ]]; then
     # RSA keys are base64'd before encrypting
+    echo "$NAME $SECRETTYPE $SECRETPATH $SECRETPERMISSIONS"
     echo "$DECRYPTED" | base64 -d
 else
     echo "Invalid secret type"
