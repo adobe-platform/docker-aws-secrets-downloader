@@ -74,7 +74,7 @@ fi
 
 # If requesting a config, print and exit
 if [[ "$KEY" = "configs" ]]; then
-    SECRETVAL=`echo "$SECRETJSON" | jq -r '.Item.SecretVal.M["'$NAME'"].S'`
+    SECRETVAL=`echo "$SECRETJSON" | jq -M '.Item.SecretVal.M["'$NAME'"].S' | sed 's/^.\(.*\).$/\1/'`
     
     if [[ "$FORMAT" = "plain" ]]; then
         echo "$NAME $SECRETVAL"
@@ -85,7 +85,7 @@ if [[ "$KEY" = "configs" ]]; then
     exit 0
 fi
 
-SECRETVAL=`echo "$SECRETJSON" | jq -r '.Item.SecretVal.M["'$NAME'"].M.contents.S'`
+SECRETVAL=`echo "$SECRETJSON" | jq -M '.Item.SecretVal.M["'$NAME'"].M.contents.S' | sed 's/^.\(.*\).$/\1/'`
 SECRETTYPE=`echo "$SECRETJSON" | jq -r '.Item.SecretVal.M["'$NAME'"].M.type.S'`
 SECRETPATH=`echo "$SECRETJSON" | jq -r '.Item.SecretVal.M["'$NAME'"].M.path.S'`
 SECRETPERMISSIONS=`echo "$SECRETJSON" | jq -r '.Item.SecretVal.M["'$NAME'"].M.permissions.S'`
